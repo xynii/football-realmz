@@ -1,2 +1,147 @@
+// Self-contained React app with service worker and localStorage caching in one file
+// Uses inline Tailwind (via CDN) and React via CDN
+// Includes basic match prediction heuristics and offline caching instructions
+
 <!DOCTYPE html>
-<html><body><h1>Football App</h1></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Football Predictor — Self-contained React App</title>
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM from CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Service Worker Registration -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("sw.js").catch(console.error);
+        });
+      }
+    </script>
+  </head>
+  <body class="bg-gray-100 min-h-screen p-4">
+    <div id="root"></div>
+
+    <script>
+      // -----------------------------------------------------
+      // Mock API Fetch (using real-world fallback)
+      // -----------------------------------------------------
+      async function fetchTeamData(team) {
+        // Try local cache first
+        const cacheKey = `team_${team}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) return JSON.parse(cached);
+
+        // Try online fetch (fallback to mock data offline)
+        try {
+          const res = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${team}`);
+          const data = await res.json();
+          localStorage.setItem(cacheKey, JSON.stringify(data));
+          return data;
+        } catch (e) {
+          return { teams: [{ strTeam: team, intForm: "WLDWW" }] }; // Simple offline mock
+        }
+      }
+
+      // -----------------------------------------------------
+      // Prediction Heuristic
+      // -----------------------------------------------------
+      function predictMatch(teamA, teamB) {
+        const score = t =>
+          (t.match(/W/g) || []).length * 3 + (t.match(/D/g) || []).length * 1;
+        const sA = score(teamA.intForm || "");
+        const sB = score(teamB.intForm || "");
+        if (sA > sB) return `${teamA.strTeam} likely wins`;
+        if (sB > sA) return `${teamB.strTeam} likely wins`;
+        return "Likely a Draw";
+      }
+
+      // -----------------------------------------------------
+      // React App
+      // -----------------------------------------------------
+      const App = () => {
+        const [teamA, setTeamA] = React.useState("");
+        const [teamB, setTeamB] = React.useState("");
+        const [dataA, setDataA] = React.useState(null);
+        const [dataB, setDataB] = React.useState(null);
+        const [result, setResult] = React.useState(null);
+
+        const searchTeams = async () => {
+          const a = await fetchTeamData(teamA);
+          const b = await fetchTeamData(teamB);
+          setDataA(a.teams?.[0] || null);
+          setDataB(b.teams?.[0] || null);
+          if (a.teams && b.teams) setResult(predictMatch(a.teams[0], b.teams[0]));
+        };
+
+        return (
+          React.createElement("div", { className: "max-w-xl mx-auto" },
+            React.createElement("h1", { className: "text-2xl font-bold mb-4" }, "Football Match Predictor"),
+
+            React.createElement("div", { className: "grid grid-cols-1 gap-4" },
+              React.createElement("input", {
+                placeholder: "Team A",
+                className: "p-2 border rounded",
+                value: teamA,
+                onChange: e => setTeamA(e.target.value)
+              }),
+              React.createElement("input", {
+                placeholder: "Team B",
+                className: "p-2 border rounded",
+                value: teamB,
+                onChange: e => setTeamB(e.target.value)
+              }),
+              React.createElement("button", {
+                className: "bg-blue-600 text-white p-2 rounded",
+                onClick: searchTeams
+              }, "Compare Teams")
+            ),
+
+            result && React.createElement("div", {
+              className: "mt-4 p-4 bg-white shadow rounded"
+            },
+              React.createElement("h2", { className: "font-bold text-lg" }, "Prediction:"),
+              React.createElement("p", null, result)
+            )
+          )
+        );
+      };
+
+      ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+    </script>
+
+    <!-- ------------------------
+         SIMPLE SERVICE WORKER (sw.js)
+         Users save this as a separate file
+    -------------------------- -->
+    <script type="text/plain" id="sw-js">
+      const CACHE_NAME = "football-app-cache-v1";
+      const FILES = ["./", "index.html"];
+
+      self.addEventListener("install", e => {
+        e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(FILES)));
+      });
+
+      self.addEventListener("fetch", e => {
+        e.respondWith(
+          caches.match(e.request).then(r => r || fetch(e.request))
+        );
+      });
+    </script>
+
+    <!-- Usage instructions -->
+    <div class="mt-8 p-4 bg-white max-w-xl mx-auto rounded shadow">
+      <h2 class="font-bold mb-2 text-lg">How to Build This App</h2>
+      <ol class="list-decimal ml-5 space-y-1">
+        <li>Copy this entire HTML file as <b>index.html</b>.</li>
+        <li>Create a new file named <b>sw.js</b>.</li>
+        <li>Copy the service worker code (inside the box labelled sw.js).</li>
+        <li>Open <b>index.html</b> in your browser.</li>
+        <li>Your app now works online + offline with caching.</li>
+      </ol>
+    </div>
+  </body>
+</html>
